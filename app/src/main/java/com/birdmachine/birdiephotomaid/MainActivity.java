@@ -555,7 +555,7 @@ public class MainActivity extends Activity {
     private Button styledButton(String text, boolean primary) {
         Button button = new Button(this);
         button.setText(text);
-        button.setTextAllCaps(false);
+        button.setAllCaps(false);
         button.setTextSize(15);
         button.setGravity(Gravity.CENTER);
         button.setMinHeight(dp(52));

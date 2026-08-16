@@ -27,7 +27,7 @@ public final class SafeZonePreview extends View {
         border.setStrokeWidth(dp(2));
         blocked.setColor(Color.argb(115, 210, 62, 62));
         safe.setColor(Color.argb(80, 77, 181, 107));
-        setMinimumHeight(dp(260));
+        setMinimumHeight(Math.round(dp(260)));
     }
 
     public void setListener(Listener listener) { this.listener = listener; }
