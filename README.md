@@ -23,6 +23,9 @@ The current build is deliberately read-only: it can inspect, hash, classify, and
 
 The project uses Java 17, Android Gradle Plugin 8.13.2, Gradle 8.13, compile/target SDK 36, min SDK 29, and Build Tools 35.0.0.
 
-GitHub Actions builds a debug APK on pushes to `main`, pull requests targeting `main`, or manual workflow dispatch. The resulting artifact is named **BirdiePhotoMaid-debug-apk**.
+GitHub Actions builds a debug APK on pushes to `main`, pull requests targeting `main`, or manual workflow dispatch. The workflow artifact is named **Feist-debug-apk** and contains:
 
-Once the full project import lands, see `.github/workflows/android-debug-apk.yml` for the CI build and `scripts/download-latest-ci-apk.sh` for the Mallard-side artifact fetch helper.
+- `Feist-BirdiePhotoMaid-v0.2-debug.apk`
+- `Feist-BirdiePhotoMaid-v0.2-debug.apk.sha256`
+
+See `.github/workflows/android-debug-apk.yml` for the CI build and `scripts/download-latest-ci-apk.sh` for the Mallard-side helper that downloads the latest successful APK artifact into `dist/github/`.
