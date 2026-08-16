@@ -22,8 +22,12 @@ jobs:
         shell: bash
         run: |
           if [[ ! -f settings.gradle ]]; then
-            test -f .bootstrap/source.tgz.b64
-            base64 -d .bootstrap/source.tgz.b64 > /tmp/feist-source.tgz
+            test -f .bootstrap/source.part00
+            test -f .bootstrap/source.part01
+            test -f .bootstrap/source.part02
+            test -f .bootstrap/source.part03
+            cat .bootstrap/source.part00 .bootstrap/source.part01 .bootstrap/source.part02 .bootstrap/source.part03 > /tmp/feist-source.b64
+            base64 -d /tmp/feist-source.b64 > /tmp/feist-source.tgz
             tar -xzf /tmp/feist-source.tgz
           fi
 
@@ -53,7 +57,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f --ignore-unmatch .bootstrap/source.tgz.b64
+          git rm -f --ignore-unmatch \
+            .bootstrap/source.tgz.b64 \
+            .bootstrap/source.part00 \
+            .bootstrap/source.part01 \
+            .bootstrap/source.part02 \
+            .bootstrap/source.part03
           git add -A
           if ! git diff --cached --quiet; then
             git commit -m "CI: materialize Android project and Gradle wrapper"
