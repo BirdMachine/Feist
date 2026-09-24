@@ -2,6 +2,9 @@ package com.birdmachine.birdiephotomaid;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -10,10 +13,13 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
+import android.net.Uri;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
@@ -30,9 +36,13 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_MEDIA = 42;
+    private static final int REQUEST_DELETE = 43;
+    private final Set<PhotoRecord> selected = new LinkedHashSet<>();
     private static final int BG = Color.rgb(255, 248, 235);
     private static final int INK = Color.rgb(40, 28, 24);
     private static final int MUTED = Color.rgb(91, 65, 50);
@@ -90,7 +100,7 @@ public class MainActivity extends Activity {
         personality.setOnClickListener(v -> showMascotSettings());
         content.addView(personality);
 
-        addCard("v0.2 safety rule", "Scanning, hashing, grouping, and thumbnail review are local and read-only. This build does not delete, move, rename, or upload your media.");
+        addCard("Your cleanup flow", "Review photos, select files, share them to your cloud app, verify the backup there, then select and delete local originals with Android's confirmation.");
         addBottomSafetySpacer();
         finishScreen();
     }
@@ -140,6 +150,7 @@ public class MainActivity extends Activity {
     }
 
     private void startScan(boolean partial) {
+        selected.clear();
         beginScreen(BirdieState.SEARCHING);
         addTitle("Inspecting the nest", partial ?
                 "Android granted access to selected photos only." : "Full photo-library access granted.");
@@ -200,6 +211,7 @@ public class MainActivity extends Activity {
                 formatBytes(result.exactRecoverableBytes) + ".");
         addCard("Visual screenshot matches", result.nearDuplicateGroups.size() +
                 " conservative perceptual groups. These are candidates only — visual similarity is not proof of duplication.");
+        addCard("Before deleting", "Sharing opens your chosen cloud app, but Feist cannot confirm its upload finished. Check the files in that app before returning to delete them.");
 
         Button exact = primaryButton("Review exact duplicate groups");
         exact.setEnabled(!result.exactDuplicateGroups.isEmpty());
@@ -243,7 +255,8 @@ public class MainActivity extends Activity {
         beginScreen(BirdieState.REVIEWING);
         addTitle(near ? "Visual match review" : "Exact duplicate review",
                 near ? "Similar-looking screenshot clusters — inspect before trusting." :
-                        "SHA-256 identical files. Still read-only: no delete buttons yet.");
+                        "SHA-256 identical files. Select specific copies to share or delete.");
+        addSelectionActions(() -> showDuplicateReview(result, near));
 
         if (groups.isEmpty()) {
             addCard("Nothing here", "No groups were found in this category.");
@@ -290,6 +303,7 @@ public class MainActivity extends Activity {
             name.setMaxWidth(thumb);
             cell.addView(name);
             row.addView(cell);
+            addSelectionCheckbox(cell, photo);
         }
         strip.addView(row);
         card.addView(strip, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -323,6 +337,7 @@ public class MainActivity extends Activity {
         final List<PhotoRecord> sourcePhotos = photos;
         beginScreen(BirdieState.REVIEWING);
         addTitle(source, formatCount(sourcePhotos.size()) + " screenshots");
+        addSelectionActions(() -> showSourceDetail(result, source, limit));
 
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(3);
@@ -345,6 +360,7 @@ public class MainActivity extends Activity {
             stamp.setTextSize(10);
             stamp.setGravity(Gravity.CENTER);
             tile.addView(stamp, new LinearLayout.LayoutParams(cell - dp(8), ViewGroup.LayoutParams.WRAP_CONTENT));
+            addSelectionCheckbox(tile, photo);
             grid.addView(tile, new GridLayout.LayoutParams());
         }
         content.addView(grid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -359,6 +375,99 @@ public class MainActivity extends Activity {
         content.addView(back);
         addBottomSafetySpacer();
         finishScreen();
+    }
+
+    private void addSelectionCheckbox(LinearLayout parent, PhotoRecord photo) {
+        CheckBox box = new CheckBox(this);
+        box.setText("Select");
+        box.setTextSize(12);
+        box.setChecked(selected.contains(photo));
+        box.setOnCheckedChangeListener((button, checked) -> {
+            if (checked) selected.add(photo);
+            else selected.remove(photo);
+        });
+        parent.addView(box);
+    }
+
+    private void addSelectionActions(Runnable refresh) {
+        Button share = primaryButton("Back up selected with cloud app");
+        share.setOnClickListener(v -> shareSelected());
+        content.addView(share);
+        Button delete = secondaryButton("Delete selected locally…");
+        delete.setOnClickListener(v -> confirmDelete());
+        content.addView(delete);
+        Button clear = secondaryButton("Clear selection");
+        clear.setOnClickListener(v -> { selected.clear(); refresh.run(); });
+        content.addView(clear);
+    }
+
+    private void shareSelected() {
+        if (selected.isEmpty()) {
+            Toast.makeText(this, "Select at least one image first.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ArrayList<Uri> uris = new ArrayList<>();
+        for (PhotoRecord photo : selected) uris.add(photo.uri);
+        Intent share = new Intent(uris.size() == 1 ? Intent.ACTION_SEND : Intent.ACTION_SEND_MULTIPLE);
+        share.setType("image/*");
+        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (uris.size() == 1) share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        else share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        android.content.ClipData clip = android.content.ClipData.newUri(getContentResolver(), "Feist backup", uris.get(0));
+        for (int i = 1; i < uris.size(); i++) clip.addItem(new android.content.ClipData.Item(uris.get(i)));
+        share.setClipData(clip);
+        try {
+            startActivity(Intent.createChooser(share, "Back up to your cloud app"));
+        } catch (android.content.ActivityNotFoundException error) {
+            Toast.makeText(this, "No app can receive these images.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void confirmDelete() {
+        if (selected.isEmpty()) {
+            Toast.makeText(this, "Select at least one image first.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        PhotoScanner.Result scan = ScanRepository.get();
+        if (scan != null) {
+            for (List<PhotoRecord> group : scan.exactDuplicateGroups) {
+                if (selected.containsAll(group)) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("Keep a copy of each duplicate")
+                            .setMessage("You selected every file in an exact duplicate group. Deselect at least one copy before deleting.")
+                            .setPositiveButton("OK", null).show();
+                    return;
+                }
+            }
+        }
+        long bytes = 0;
+        ArrayList<Uri> uris = new ArrayList<>();
+        for (PhotoRecord photo : selected) {
+            bytes += Math.max(0, photo.size);
+            uris.add(photo.uri);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Delete " + uris.size() + " local images?")
+                .setMessage("This may free " + formatBytes(bytes) + ". Verify any cloud backup before continuing. Android will ask you to approve the deletion next.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Continue", (dialog, which) -> {
+                    try {
+                        PendingIntent request = MediaStore.createDeleteRequest(getContentResolver(), uris);
+                        startIntentSenderForResult(request.getIntentSender(), REQUEST_DELETE, null, 0, 0, 0);
+                    } catch (Exception error) {
+                        Toast.makeText(this, "Could not request deletion: " + error.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                }).show();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_DELETE) {
+            selected.clear();
+            ScanRepository.set(null);
+            Toast.makeText(this, resultCode == RESULT_OK ? "Deletion approved. Scan again for fresh results." : "Deletion cancelled. Scan again to refresh.", Toast.LENGTH_LONG).show();
+            showDashboard();
+        }
     }
 
     private void showDeadZoneEditor() {
