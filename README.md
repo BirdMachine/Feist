@@ -2,7 +2,7 @@
 
 A local-first Android photo-library organizer with a kestrel-coded maid mascot.
 
-This repository is the development home for **Birdie Photo Maid** (testing version v0.3.2), aimed first at Kestrel — Galaxy S21 Ultra 5G / SM-G998U1.
+This repository is the development home for **Birdie Photo Maid** (testing version v0.3.3), aimed first at Kestrel — Galaxy S21 Ultra 5G / SM-G998U1.
 
 The [product and character design spec](docs/product-character-design.md) records the broader direction.
 
@@ -19,6 +19,7 @@ The current build can inspect, share selected images to an installed cloud app, 
 - Screenshot browsing grouped by inferred source app.
 - Kestrel-maid mascot state framework.
 - Four-edge damaged-display safe zones, including Kestrel's default lower 34% dead zone.
+- User-started scans continue in a foreground service after you leave Feist; a progress notification shows the current phase and count, then opens the results.
 - Select individual images in duplicate groups and screenshot source lists.
 - Share selected images via Android's chooser to a cloud app such as Drive.
 - Move selected local images to Android Trash by default, or explicitly request permanent deletion after an in-app warning and Android confirmation. Feist blocks removing every copy in any identified exact duplicate group.
@@ -37,9 +38,11 @@ Push builds of `main` will not replace the release APK if any signing secret is 
 
 To clean up: scan with full photo access, review an exact group or screenshot source, check specific images, tap **Back up selected with cloud app**, complete the upload in that app, verify the files there, return to Feist, then tap **Move selected to Trash…**. Empty Trash in your gallery to reclaim the space. **Permanently delete selected…** is also available with a separate warning. Rescan afterward. The app currently indexes images only, not videos or other downloads. It displays the first 50 duplicate groups and the first 60 screenshots per source, with a button for more screenshots.
 
+When starting a scan on Android 13+, allow notifications if you want to watch progress outside Feist. A scan runs even if notification permission is declined, but Android may hide its progress card. Tap the completion notification to review results. Results currently live in app memory, so Android may discard them if it reclaims the process after the scan finishes; if that happens, scan again. Android 14 displays a standard notification progress bar; the Android 16 ride-share-style Live Update is not used for this local task.
+
 GitHub Actions builds a debug APK on pushes to `main`, pull requests targeting `main`, or manual workflow dispatch. A successful push to `main` updates the downloadable testing release. The workflow artifact is named **Feist-debug-apk** and contains:
 
-- `Feist-BirdiePhotoMaid-v0.3.2-debug.apk`
-- `Feist-BirdiePhotoMaid-v0.3.2-debug.apk.sha256`
+- `Feist-BirdiePhotoMaid-v0.3.3-debug.apk`
+- `Feist-BirdiePhotoMaid-v0.3.3-debug.apk.sha256`
 
 See `.github/workflows/android-debug-apk.yml` for the CI build and `scripts/download-latest-ci-apk.sh` for the Mallard-side helper that downloads the latest successful APK artifact into `dist/github/`.
