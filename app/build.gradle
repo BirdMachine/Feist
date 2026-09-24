@@ -2,24 +2,45 @@ plugins {
     id 'com.android.application'
 }
 
+def feistSigningFile = System.getenv('FEIST_DEBUG_STORE_FILE')
+def feistStorePassword = System.getenv('FEIST_DEBUG_STORE_PASSWORD')
+def feistKeyAlias = System.getenv('FEIST_DEBUG_KEY_ALIAS')
+def feistKeyPassword = System.getenv('FEIST_DEBUG_KEY_PASSWORD')
+def hasFeistSigning = [feistSigningFile, feistStorePassword, feistKeyAlias, feistKeyPassword]
+        .every { it != null && !it.isEmpty() }
+def feistCiVersionCode = System.getenv('FEIST_VERSION_CODE')?.toInteger()
+
 android {
     namespace 'com.birdmachine.birdiephotomaid'
     compileSdk 36
     buildToolsVersion '35.0.0'
 
+    signingConfigs {
+        if (hasFeistSigning) {
+            feistDebug {
+                storeFile file(feistSigningFile)
+                storePassword feistStorePassword
+                keyAlias feistKeyAlias
+                keyPassword feistKeyPassword
+                v1SigningEnabled true
+                v2SigningEnabled true
+            }
+        }
+    }
 
     defaultConfig {
         applicationId 'com.birdmachine.birdiephotomaid'
         minSdk 29
         targetSdk 36
-        versionCode 4
-        versionName '0.3.1'
+        versionCode feistCiVersionCode ?: 5
+        versionName '0.3.2'
     }
 
     buildTypes {
         debug {
             applicationIdSuffix '.debug'
             versionNameSuffix '-debug'
+            if (hasFeistSigning) signingConfig signingConfigs.feistDebug
         }
         release {
             minifyEnabled false
