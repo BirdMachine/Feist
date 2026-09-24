@@ -100,7 +100,7 @@ public class MainActivity extends Activity {
         personality.setOnClickListener(v -> showMascotSettings());
         content.addView(personality);
 
-        addCard("Your cleanup flow", "Review photos, select files, share them to your cloud app, verify the backup there, then select and delete local originals with Android's confirmation.");
+        addCard("Your cleanup flow", "Review photos, select files, share them to your cloud app, verify the backup there, then move local originals to Trash. Empty Trash in your gallery to reclaim space, or choose permanent deletion explicitly.");
         addBottomSafetySpacer();
         finishScreen();
     }
@@ -393,8 +393,11 @@ public class MainActivity extends Activity {
         Button share = primaryButton("Back up selected with cloud app");
         share.setOnClickListener(v -> shareSelected());
         content.addView(share);
-        Button delete = secondaryButton("Delete selected locally…");
-        delete.setOnClickListener(v -> confirmDelete());
+        Button trash = secondaryButton("Move selected to Trash…");
+        trash.setOnClickListener(v -> confirmRemoval(false));
+        content.addView(trash);
+        Button delete = secondaryButton("Permanently delete selected…");
+        delete.setOnClickListener(v -> confirmRemoval(true));
         content.addView(delete);
         Button clear = secondaryButton("Clear selection");
         clear.setOnClickListener(v -> { selected.clear(); refresh.run(); });
@@ -423,7 +426,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void confirmDelete() {
+    private void confirmRemoval(boolean permanent) {
         if (selected.isEmpty()) {
             Toast.makeText(this, "Select at least one image first.", Toast.LENGTH_SHORT).show();
             return;
@@ -447,15 +450,17 @@ public class MainActivity extends Activity {
             uris.add(photo.uri);
         }
         new AlertDialog.Builder(this)
-                .setTitle("Delete " + uris.size() + " local images?")
-                .setMessage("This may free " + formatBytes(bytes) + ". Verify any cloud backup before continuing. Android will ask you to approve the deletion next.")
+                .setTitle((permanent ? "Permanently delete " : "Move to Trash: ") + uris.size() + " images?")
+                .setMessage((permanent ? "This cannot be undone and may free " + formatBytes(bytes) + ". " : "These images may still occupy storage until you empty Trash in your gallery. ") +
+                        "Verify any cloud backup before continuing. Android will ask you to approve next.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Continue", (dialog, which) -> {
                     try {
-                        PendingIntent request = MediaStore.createDeleteRequest(getContentResolver(), uris);
+                        PendingIntent request = permanent ? MediaStore.createDeleteRequest(getContentResolver(), uris)
+                                : MediaStore.createTrashRequest(getContentResolver(), uris, true);
                         startIntentSenderForResult(request.getIntentSender(), REQUEST_DELETE, null, 0, 0, 0);
                     } catch (Exception error) {
-                        Toast.makeText(this, "Could not request deletion: " + error.getMessage(), Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "Could not request removal: " + error.getMessage(), Toast.LENGTH_LONG).show();
                     }
                 }).show();
     }
