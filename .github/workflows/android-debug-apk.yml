@@ -35,6 +35,33 @@ jobs:
       - name: Install Android SDK 36
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
+      - name: Restore stable Feist debug signing key
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.FEIST_DEBUG_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.FEIST_DEBUG_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FEIST_DEBUG_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.FEIST_DEBUG_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_B64" && -n "$STORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/feist-debug.keystore"
+            chmod 600 "$RUNNER_TEMP/feist-debug.keystore"
+            echo "FEIST_DEBUG_STORE_FILE=$RUNNER_TEMP/feist-debug.keystore" >> "$GITHUB_ENV"
+            echo "FEIST_DEBUG_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "FEIST_DEBUG_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "FEIST_DEBUG_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]]; then
+            echo 'Feist signing secrets are incomplete. Run scripts/setup-signing.sh before publishing.' >&2
+            exit 1
+          else
+            echo 'Stable signing secrets unavailable; PR verification uses a disposable debug key.'
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set monotonic Feist version code
+        run: echo "FEIST_VERSION_CODE=$((400000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
       - name: Build debug APK
         run: |
           chmod +x gradlew
@@ -44,25 +71,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Feist-BirdiePhotoMaid-v0.3.1-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Feist-BirdiePhotoMaid-v0.3.2-debug.apk
           cd dist
-          sha256sum Feist-BirdiePhotoMaid-v0.3.1-debug.apk > Feist-BirdiePhotoMaid-v0.3.1-debug.apk.sha256
+          sha256sum Feist-BirdiePhotoMaid-v0.3.2-debug.apk > Feist-BirdiePhotoMaid-v0.3.2-debug.apk.sha256
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Feist-debug-apk
           path: |
-            dist/Feist-BirdiePhotoMaid-v0.3.1-debug.apk
-            dist/Feist-BirdiePhotoMaid-v0.3.1-debug.apk.sha256
+            dist/Feist-BirdiePhotoMaid-v0.3.2-debug.apk
+            dist/Feist-BirdiePhotoMaid-v0.3.2-debug.apk.sha256
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish downloadable APK on main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.signing.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete feist-latest --yes --cleanup-tag || true
-          gh release create feist-latest dist/Feist-BirdiePhotoMaid-v0.3.1-debug.apk dist/Feist-BirdiePhotoMaid-v0.3.1-debug.apk.sha256 \
-            --target "$GITHUB_SHA" --title 'Feist v0.3.1 testing APK' --notes 'Review duplicates and screenshots, share selected images to a cloud app, verify the backup, then choose Android Trash or explicit permanent deletion.' --prerelease --latest=false
+          gh release create feist-latest dist/Feist-BirdiePhotoMaid-v0.3.2-debug.apk dist/Feist-BirdiePhotoMaid-v0.3.2-debug.apk.sha256 \
+            --target "$GITHUB_SHA" --title 'Feist v0.3.2 testing APK' --notes 'Stable-signed debug APK. Review duplicates and screenshots, share selected images to a cloud app, verify the backup, then choose Android Trash or explicit permanent deletion.' --prerelease --latest=false
