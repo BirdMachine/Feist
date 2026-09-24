@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -44,15 +44,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Feist-BirdiePhotoMaid-v0.2-debug.apk
-          sha256sum dist/Feist-BirdiePhotoMaid-v0.2-debug.apk > dist/Feist-BirdiePhotoMaid-v0.2-debug.apk.sha256
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Feist-BirdiePhotoMaid-v0.3-debug.apk
+          cd dist
+          sha256sum Feist-BirdiePhotoMaid-v0.3-debug.apk > Feist-BirdiePhotoMaid-v0.3-debug.apk.sha256
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Feist-debug-apk
           path: |
-            dist/Feist-BirdiePhotoMaid-v0.2-debug.apk
-            dist/Feist-BirdiePhotoMaid-v0.2-debug.apk.sha256
+            dist/Feist-BirdiePhotoMaid-v0.3-debug.apk
+            dist/Feist-BirdiePhotoMaid-v0.3-debug.apk.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish downloadable APK on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete feist-latest --yes --cleanup-tag || true
+          gh release create feist-latest dist/Feist-BirdiePhotoMaid-v0.3-debug.apk dist/Feist-BirdiePhotoMaid-v0.3-debug.apk.sha256 \
+            --target "$GITHUB_SHA" --title 'Feist v0.3 testing APK' --notes 'Review duplicates and screenshots, share selected images to a cloud app, then request Android-confirmed local deletion. Verify backups before deleting.' --prerelease --latest=false
