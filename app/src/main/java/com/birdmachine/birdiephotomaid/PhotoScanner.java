@@ -67,6 +67,7 @@ public final class PhotoScanner {
             int done = 0;
 
             while (cursor.moveToNext()) {
+                if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Scan stopped");
                 long id = cursor.getLong(idCol);
                 String name = cursor.getString(nameCol);
                 String path = cursor.getString(pathCol);
@@ -113,6 +114,7 @@ public final class PhotoScanner {
         for (List<PhotoRecord> bucket : sizeBuckets.values()) {
             if (bucket.size() < 2) continue;
             for (PhotoRecord photo : bucket) {
+                if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Scan stopped");
                 photo.sha256 = sha256(resolver, photo.uri);
                 if (photo.sha256 != null) {
                     hashBuckets.computeIfAbsent(photo.sha256, key -> new ArrayList<>()).add(photo);
@@ -135,12 +137,13 @@ public final class PhotoScanner {
                 Long.compare(groupSavings(b), groupSavings(a)));
     }
 
-    private static void findNearDuplicateScreenshots(ContentResolver resolver, Result result, Progress progress) {
+    private static void findNearDuplicateScreenshots(ContentResolver resolver, Result result, Progress progress) throws InterruptedException {
         List<PhotoRecord> screenshots = new ArrayList<>();
         for (PhotoRecord photo : result.photos) if (photo.screenshot) screenshots.add(photo);
         if (screenshots.size() < 2) return;
 
         for (int i = 0; i < screenshots.size(); i++) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Scan stopped");
             PhotoRecord photo = screenshots.get(i);
             DHash hash = dHash(resolver, photo.uri);
             photo.dHash = hash.value;

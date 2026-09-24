@@ -42,6 +42,7 @@ import java.util.Set;
 public class MainActivity extends Activity {
     private static final int REQUEST_MEDIA = 42;
     private static final int REQUEST_DELETE = 43;
+    private static final int REQUEST_NOTIFICATIONS = 44;
     private final Set<PhotoRecord> selected = new LinkedHashSet<>();
     private static final int BG = Color.rgb(255, 248, 235);
     private static final int INK = Color.rgb(40, 28, 24);
@@ -55,12 +56,35 @@ public class MainActivity extends Activity {
     private ScrollView scroll;
     private int systemTopInset;
     private int systemBottomInset;
+    private boolean pendingPartialScan;
+    private boolean showingScan;
+    private TextView scanPhaseView;
+    private ProgressBar scanBar;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = new AppPrefs(this);
         thumbnails = new ThumbnailLoader(this);
-        showDashboard();
+        if (ScanRepository.isRunning()) showScanProgress();
+        else if (ScanRepository.get() != null) showResults(ScanRepository.get());
+        else showDashboard();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        ScanRepository.listen(() -> main.post(this::refreshScanProgress));
+        refreshScanProgress();
+    }
+
+    @Override protected void onPause() {
+        ScanRepository.listen(null);
+        super.onPause();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        refreshScanProgress();
+        if (!ScanRepository.isRunning() && ScanRepository.get() != null) showResults(ScanRepository.get());
     }
 
     @Override protected void onDestroy() {
@@ -74,7 +98,7 @@ public class MainActivity extends Activity {
 
         PhotoScanner.Result last = ScanRepository.get();
         if (last == null) {
-            addCard("Fresh nest", "Nothing has been scanned in this app session yet. Birdie Photo Maid remains read-only in v0.2.");
+            addCard("Fresh nest", "Nothing has been scanned in this app session yet. Start an inspection and follow its notification while Feist works.");
         } else {
             addCard("Last inspection", formatCount(last.photos.size()) + " images · " +
                     formatCount(last.screenshotCount) + " screenshots\n" +
@@ -107,7 +131,7 @@ public class MainActivity extends Activity {
 
     private void ensurePermissionAndScan() {
         if (hasBroadPhotoAccess() || hasPartialPhotoAccess()) {
-            startScan(hasPartialPhotoAccess() && !hasBroadPhotoAccess());
+            requestScanNotifications(hasPartialPhotoAccess() && !hasBroadPhotoAccess());
             return;
         }
         requestPhotoAccess();
@@ -140,42 +164,75 @@ public class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_NOTIFICATIONS) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Scan continues in the background; enable notifications to see its progress outside Feist.", Toast.LENGTH_LONG).show();
+            }
+            startScan(pendingPartialScan);
+            return;
+        }
         if (requestCode != REQUEST_MEDIA) return;
         if (hasBroadPhotoAccess() || hasPartialPhotoAccess()) {
-            startScan(hasPartialPhotoAccess() && !hasBroadPhotoAccess());
+            requestScanNotifications(hasPartialPhotoAccess() && !hasBroadPhotoAccess());
         } else {
             Toast.makeText(this, "Photo access is needed to inspect the library.", Toast.LENGTH_LONG).show();
             showDashboard();
         }
     }
 
+    private void requestScanNotifications(boolean partial) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+                !getPreferences(MODE_PRIVATE).getBoolean("asked_notifications", false)) {
+            pendingPartialScan = partial;
+            getPreferences(MODE_PRIVATE).edit().putBoolean("asked_notifications", true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+        } else {
+            startScan(partial);
+        }
+    }
+
     private void startScan(boolean partial) {
         selected.clear();
+        ScanRepository.started();
+        showScanProgress();
+        Intent service = new Intent(this, PhotoScanService.class).putExtra(PhotoScanService.EXTRA_PARTIAL, partial);
+        try {
+            startForegroundService(service);
+        } catch (RuntimeException error) {
+            ScanRepository.failed("Could not start background scan: " + error.getMessage());
+            showScanError(error);
+        }
+    }
+
+    private void showScanProgress() {
         beginScreen(BirdieState.SEARCHING);
-        addTitle("Inspecting the nest", partial ?
-                "Android granted access to selected photos only." : "Full photo-library access granted.");
-        TextView phase = body("Preparing MediaStore…");
-        phase.setPadding(0, dp(8), 0, dp(6));
-        content.addView(phase);
-        ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(1000);
-        content.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(9)));
-        addCard("Read-only pass", "I’m indexing metadata, hashing only plausible exact-duplicate candidates, then comparing screenshot perceptual hashes. No files will be modified.");
+        showingScan = true;
+        addTitle("Inspecting the nest", "You can leave Feist open or switch apps. The scan continues with a progress notification.");
+        scanPhaseView = body("Preparing library…");
+        scanPhaseView.setPadding(0, dp(8), 0, dp(6));
+        content.addView(scanPhaseView);
+        scanBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        scanBar.setMax(1000);
+        content.addView(scanBar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(9)));
+        addCard("Read-only pass", "Feist indexes images, hashes duplicate candidates, and compares screenshots. No files are modified during scanning.");
         addBottomSafetySpacer();
         finishScreen();
+        refreshScanProgress();
+    }
 
-        new Thread(() -> {
-            try {
-                PhotoScanner.Result result = PhotoScanner.scan(this, partial, (done, total, label) -> main.post(() -> {
-                    progress.setProgress((int) (1000.0 * done / Math.max(1, total)));
-                    phase.setText(label + "  " + formatCount(done) + "/" + formatCount(total));
-                }));
-                ScanRepository.set(result);
-                main.post(() -> showResults(result));
-            } catch (Exception error) {
-                main.post(() -> showScanError(error));
-            }
-        }, "birdie-photo-scan").start();
+    private void refreshScanProgress() {
+        if (ScanRepository.isRunning()) {
+            if (!showingScan) { showScanProgress(); return; }
+            if (scanPhaseView != null) scanPhaseView.setText(ScanRepository.phase() + "  " +
+                    formatCount(ScanRepository.done()) + "/" + formatCount(ScanRepository.total()));
+            if (scanBar != null) scanBar.setProgress(ScanProgress.overall(
+                    ScanRepository.phase(), ScanRepository.done(), ScanRepository.total()));
+        } else if (showingScan) {
+            if (ScanRepository.get() != null) showResults(ScanRepository.get());
+            else if (ScanRepository.error() != null) showScanError(new IllegalStateException(ScanRepository.error()));
+        }
     }
 
     private void showScanError(Exception error) {
@@ -560,6 +617,7 @@ public class MainActivity extends Activity {
     }
 
     private void beginScreen(BirdieState state) {
+        showingScan = false;
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(BG);
